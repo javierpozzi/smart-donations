@@ -25,6 +25,14 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
 const config: HardhatUserConfig = {
   solidity: "0.8.4",
   networks: {
+    hardhat: {
+      // This forking is necessary to use Compound contracts on tests and scripts.
+      // See https://hardhat.org/hardhat-network/guides/mainnet-forking.html for more info.
+      forking: {
+        url: process.env.FORKING_URL!,
+        blockNumber: 13943794,
+      },
+    },
     ropsten: {
       url: process.env.ROPSTEN_URL || "",
       accounts:
