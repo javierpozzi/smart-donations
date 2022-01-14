@@ -1,15 +1,22 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
-import { BigNumber } from "ethers";
 import { ethers } from "hardhat";
 import { CERC20, ERC20, InvestmentPool } from "../typechain";
-import { addDecimalsToDai, seedDAI } from "./utils/ERC20Utils";
+import { parseDaiUnits, seedDAI, cTokenToToken } from "./utils/ERC20Utils";
 
 describe("Investment Pool", function () {
+  const daiAsBytes32 = ethers.utils.formatBytes32String("DAI");
+  const oneThousandDais = parseDaiUnits(1000);
+  const twoThousandDais = parseDaiUnits(2000);
+  const oneHundredThousandDais = parseDaiUnits(100000);
+
+  let investmentPoolContract: InvestmentPool;
   let cDaiContract: CERC20;
   let daiContract: ERC20;
-  let investmentPoolContract: InvestmentPool;
-  let addrs: SignerWithAddress[];
+  let cUsdcContract: CERC20;
+  let owner: SignerWithAddress;
+  let otherAddr: SignerWithAddress;
+  let accounts: SignerWithAddress[];
 
   before(async () => {
     cDaiContract = await ethers.getContractAt(
@@ -20,180 +27,386 @@ describe("Investment Pool", function () {
       "ERC20",
       process.env.DAI_CONTRACT_ADDRESS!
     );
-    addrs = await ethers.getSigners();
+    cUsdcContract = await ethers.getContractAt(
+      "CERC20",
+      process.env.COMPOUND_USDC_CONTRACT_ADDRESS!
+    );
+    accounts = await ethers.getSigners();
+    [owner, otherAddr] = accounts;
   });
 
   beforeEach(async function () {
     const InvestmentPool = await ethers.getContractFactory("InvestmentPool");
     investmentPoolContract = await InvestmentPool.deploy();
     await investmentPoolContract.deployed();
-    await seedDAI(addrs[0].address, 1000);
+    await seedDAI(owner.address, oneHundredThousandDais);
   });
 
-  it("Should have DAI similar balance on cDAI after investment", async function () {
-    const amount = addDecimalsToDai(10);
-
-    await daiContract.transfer(investmentPoolContract.address, amount);
-    await investmentPoolContract.investToken(
-      ethers.utils.formatBytes32String("DAI"),
-      daiContract.address,
-      cDaiContract.address,
-      amount
-    );
-
-    const cDaiBalance = await cDaiContract.balanceOf(
-      investmentPoolContract.address
-    );
-    const exchangeRateStored = await cDaiContract.exchangeRateStored();
-    const cDaiBalanceInDai = cDaiBalance
-      .mul(exchangeRateStored)
-      .div(BigNumber.from(10).pow(18));
-
-    expect(cDaiBalanceInDai).to.be.closeTo(amount, 1e10);
-
-    // const cDaiBalance = await cDaiContract
-    //   .connect(investmentPoolContract.address)
-    //   .balanceOf(investmentPoolContract.address);
-
-    // expect(cDaiBalance).to.be.equals(daiBalance);
-
-    // await cDaiContract.accrueInterest();
-  });
-
-  it("Should not be possible to invest more DAI than owned", async function () {
-    const amount = addDecimalsToDai(10);
-
-    await expect(
-      investmentPoolContract.investToken(
-        ethers.utils.formatBytes32String("DAI"),
+  describe("Invest token", function () {
+    it("Should have similar token balance on cToken after investment", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneThousandDais
+      );
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
         daiContract.address,
         cDaiContract.address,
-        amount
-      )
-    ).to.be.revertedWith("Dai/insufficient-balance");
-  });
+        oneThousandDais
+      );
 
-  it("Should be able to show your total invested DAI", async function () {
-    const amount = addDecimalsToDai(10);
-    const amount2 = addDecimalsToDai(15);
+      const cDaiBalance = await cDaiContract.balanceOf(
+        investmentPoolContract.address
+      );
+      const exchangeRateStored = await cDaiContract.exchangeRateStored();
+      const decimals = await daiContract.decimals();
+      const cDaiBalanceInDai = cTokenToToken(
+        cDaiBalance,
+        exchangeRateStored,
+        decimals
+      );
 
-    await daiContract.transfer(investmentPoolContract.address, amount);
-    await investmentPoolContract.investToken(
-      ethers.utils.formatBytes32String("DAI"),
-      daiContract.address,
-      cDaiContract.address,
-      amount
-    );
+      expect(cDaiBalanceInDai).to.be.closeTo(oneThousandDais, 1e10);
+    });
 
-    await daiContract.transfer(investmentPoolContract.address, amount2);
-    await investmentPoolContract.investToken(
-      ethers.utils.formatBytes32String("DAI"),
-      daiContract.address,
-      cDaiContract.address,
-      amount2
-    );
+    it("Should be able to show your total invested token", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneThousandDais
+      );
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        oneThousandDais
+      );
 
-    const totalInvestedDai = await investmentPoolContract.totalInvestedTokens(
-      ethers.utils.formatBytes32String("DAI")
-    );
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        twoThousandDais
+      );
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        twoThousandDais
+      );
 
-    expect(totalInvestedDai).to.be.equals(amount.add(amount2));
-  });
+      const totalInvestedDai = await investmentPoolContract.totalInvestedTokens(
+        daiAsBytes32
+      );
 
-  it("Should only be possible to invest by owner", async function () {
-    const amount = addDecimalsToDai(10);
-    const otherAddr = addrs[1];
+      expect(totalInvestedDai).to.be.equals(
+        oneThousandDais.add(twoThousandDais)
+      );
+    });
 
-    await expect(
-      investmentPoolContract
-        .connect(otherAddr)
-        .investToken(
-          ethers.utils.formatBytes32String("DAI"),
+    it("Should not be possible to invest more token than owned", async function () {
+      await expect(
+        investmentPoolContract.investToken(
+          daiAsBytes32,
           daiContract.address,
           cDaiContract.address,
-          amount
+          oneThousandDais
         )
-    ).to.be.revertedWith("Ownable: caller is not the owner");
+      ).to.be.revertedWith("Dai/insufficient-balance");
+    });
+
+    it("Should not be possible to invest 0 tokens", async function () {
+      await expect(
+        investmentPoolContract.investToken(
+          daiAsBytes32,
+          daiContract.address,
+          cDaiContract.address,
+          0
+        )
+      ).to.be.revertedWith("Amount must be greater than 0");
+    });
+
+    it("Should not be possible to invest to empty token address", async function () {
+      await expect(
+        investmentPoolContract.investToken(
+          daiAsBytes32,
+          "0x0000000000000000000000000000000000000000",
+          cDaiContract.address,
+          oneThousandDais
+        )
+      ).to.be.revertedWith("Token address cannot be 0");
+    });
+
+    it("Should not be possible to invest to empty cToken address", async function () {
+      await expect(
+        investmentPoolContract.investToken(
+          daiAsBytes32,
+          daiContract.address,
+          "0x0000000000000000000000000000000000000000",
+          oneThousandDais
+        )
+      ).to.be.revertedWith("cToken address cannot be 0");
+    });
+
+    it("Should revert if the token is not related to the cToken", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneThousandDais
+      );
+      await expect(
+        investmentPoolContract.investToken(
+          daiAsBytes32,
+          daiContract.address,
+          cUsdcContract.address,
+          oneThousandDais
+        )
+      ).to.be.revertedWith("Failed to mint");
+    });
+
+    it("Should only be possible to invest by owner", async function () {
+      await expect(
+        investmentPoolContract
+          .connect(otherAddr)
+          .investToken(
+            daiAsBytes32,
+            daiContract.address,
+            cDaiContract.address,
+            oneThousandDais
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+    });
   });
 
-  // it("Only owner should add eth", async function () {
-  //   const amount = ethers.utils.parseEther("5.0");
+  describe("Redeem token generated interests", function () {
+    it("Should only redeem generated interests, adding them to the token balance", async function () {
+      const totalInvested = oneHundredThousandDais;
 
-  //   await expect(
-  //     donorContract.connect(otherAddr).addEth({ value: amount })
-  //   ).to.be.revertedWith("Ownable: caller is not the owner");
-  // });
+      await daiContract.transfer(investmentPoolContract.address, totalInvested);
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        totalInvested
+      );
 
-  // it("Should add donee with totalDonated on 0", async function () {
-  //   const donee = { name: donee1Name, address: doneeAddr1.address };
+      const cDaiBalanceBeforeRedeem = await cDaiContract.balanceOf(
+        investmentPoolContract.address
+      );
 
-  //   await donorContract.addDonee(donee.name, donee.address);
+      await investmentPoolContract.redeemTokenGeneratedInterests(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address
+      );
 
-  //   const createdDonee = await donorContract.getDonee(donee.address);
+      const cDaiBalanceAfterRedeem = await cDaiContract.balanceOf(
+        investmentPoolContract.address
+      );
+      const exchangeRateStoredAfterRedeem =
+        await cDaiContract.exchangeRateStored();
 
-  //   expect(createdDonee.totalDonated).to.be.equals(0);
-  // });
+      const decimals = await daiContract.decimals();
 
-  // it("Should disabled donee", async function () {
-  //   const donee = { name: donee1Name, address: doneeAddr1.address };
+      const daiGeneratedInterests = cTokenToToken(
+        cDaiBalanceBeforeRedeem.sub(cDaiBalanceAfterRedeem),
+        exchangeRateStoredAfterRedeem,
+        decimals
+      );
 
-  //   await donorContract.addDonee(donee.name, donee.address);
+      const daiBalanceAfterRedeem = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
 
-  //   await donorContract.disableDonee(donee.address);
+      expect(daiGeneratedInterests).to.be.closeTo(daiBalanceAfterRedeem, 1e10);
+    });
 
-  //   const createdDonee = await donorContract.getDonee(donee.address);
+    it("Should keep total invested in cToken balance after redeem generated interests", async function () {
+      const totalInvested = oneHundredThousandDais;
 
-  //   expect(createdDonee.enabled).to.be.false;
-  // });
+      await daiContract.transfer(investmentPoolContract.address, totalInvested);
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        totalInvested
+      );
 
-  // it("Should enable donee", async function () {
-  //   const donee = { name: donee1Name, address: doneeAddr1.address };
+      await investmentPoolContract.redeemTokenGeneratedInterests(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address
+      );
 
-  //   await donorContract.addDonee(donee.name, donee.address);
+      const cDaiBalance = await cDaiContract.balanceOf(
+        investmentPoolContract.address
+      );
+      const exchangeRateStored = await cDaiContract.exchangeRateStored();
+      const decimals = await daiContract.decimals();
+      const cDaiBalanceInDai = cTokenToToken(
+        cDaiBalance,
+        exchangeRateStored,
+        decimals
+      );
 
-  //   await donorContract.disableDonee(donee.address);
+      expect(cDaiBalanceInDai).to.be.closeTo(totalInvested, 1e10);
+    });
 
-  //   await donorContract.enableDonee(donee.address);
+    it("Should add generated interests tokens to contract balance after redeem", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneHundredThousandDais
+      );
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        oneHundredThousandDais
+      );
 
-  //   const createdDonee = await donorContract.getDonee(donee.address);
+      const balanceAfterInvestment = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
 
-  //   expect(createdDonee.enabled).to.be.true;
-  // });
+      await investmentPoolContract.redeemTokenGeneratedInterests(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address
+      );
 
-  // it("Should not add donee with same address", async function () {
-  //   const donee = { name: donee1Name, address: doneeAddr1.address };
+      const generatedInterests = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
 
-  //   await donorContract.addDonee(donee.name, donee.address);
+      expect(balanceAfterInvestment).to.be.equals(0);
+      expect(generatedInterests).to.be.gt(0);
+    });
 
-  //   await expect(
-  //     donorContract.addDonee(donee.name, donee.address)
-  //   ).to.be.revertedWith("Donee already exists");
-  // });
+    it("Should not redeem any interest if nothing was invested", async function () {
+      await investmentPoolContract.redeemTokenGeneratedInterests(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address
+      );
 
-  // it("Should not add donee with name longer than 32", async function () {
-  //   const donee = { name: "a".repeat(33), address: doneeAddr1.address };
+      const generatedInterests = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
 
-  //   await expect(
-  //     donorContract.addDonee(donee.name, donee.address)
-  //   ).to.be.revertedWith("Name must be between 0-32 bytes");
-  // });
+      expect(generatedInterests).to.be.equals(0);
+    });
 
-  // it("Should not add donee with empty name", async function () {
-  //   const donee = { name: "", address: doneeAddr1.address };
+    it("Should only be possible to redeem generated interests by owner", async function () {
+      await expect(
+        investmentPoolContract
+          .connect(otherAddr)
+          .redeemTokenGeneratedInterests(
+            daiAsBytes32,
+            daiContract.address,
+            cDaiContract.address
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+    });
+  });
 
-  //   await expect(
-  //     donorContract.addDonee(donee.name, donee.address)
-  //   ).to.be.revertedWith("Name must be between 0-32 bytes");
-  // });
+  describe("Transfer token", function () {
+    it("Should increase receiver balance after transfer", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneThousandDais
+      );
 
-  // it("Should not add donee with address 0", async function () {
-  //   const donee = {
-  //     name: donee1Name,
-  //     address: "0x0000000000000000000000000000000000000000",
-  //   };
+      const balanceBeforeTransfer = await daiContract.balanceOf(
+        otherAddr.address
+      );
 
-  //   await expect(
-  //     donorContract.addDonee(donee.name, donee.address)
-  //   ).to.be.revertedWith("Address cannot be 0");
-  // });
+      await investmentPoolContract.transferToken(
+        daiContract.address,
+        otherAddr.address,
+        oneThousandDais
+      );
+
+      const balanceAfterTransfer = await daiContract.balanceOf(
+        otherAddr.address
+      );
+
+      expect(balanceAfterTransfer).to.be.equals(
+        balanceBeforeTransfer.add(oneThousandDais)
+      );
+    });
+
+    it("Should decrease sender balance after transfer", async function () {
+      await daiContract.transfer(
+        investmentPoolContract.address,
+        oneThousandDais
+      );
+
+      const balanceBeforeTransfer = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
+
+      await investmentPoolContract.transferToken(
+        daiContract.address,
+        otherAddr.address,
+        oneThousandDais
+      );
+
+      const balanceAfterTransfer = await daiContract.balanceOf(
+        investmentPoolContract.address
+      );
+
+      expect(balanceBeforeTransfer).to.be.equals(
+        balanceAfterTransfer.add(oneThousandDais)
+      );
+    });
+
+    it("Should only be possible to transfer token by owner", async function () {
+      await expect(
+        investmentPoolContract
+          .connect(otherAddr)
+          .transferToken(
+            daiContract.address,
+            otherAddr.address,
+            oneThousandDais
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner");
+    });
+  });
+  describe("Get token generated interests", function () {
+    it("Should get token generated interests", async function () {
+      const totalInvested = oneHundredThousandDais;
+
+      await daiContract.transfer(investmentPoolContract.address, totalInvested);
+      await investmentPoolContract.investToken(
+        daiAsBytes32,
+        daiContract.address,
+        cDaiContract.address,
+        totalInvested
+      );
+
+      await cDaiContract.accrueInterest();
+
+      const cDaiBalance = await cDaiContract.balanceOf(
+        investmentPoolContract.address
+      );
+
+      const exchangeRateStored = await cDaiContract.exchangeRateStored();
+
+      const decimals = await daiContract.decimals();
+
+      const daiGeneratedInterestsCalculated = cTokenToToken(
+        cDaiBalance,
+        exchangeRateStored,
+        decimals
+      ).sub(totalInvested);
+
+      const daiGeneratedInterestsFromContract =
+        await investmentPoolContract.getTokenGeneratedInterestsStored(
+          daiAsBytes32,
+          daiContract.address,
+          cDaiContract.address
+        );
+
+      expect(daiGeneratedInterestsFromContract).to.be.closeTo(
+        daiGeneratedInterestsCalculated,
+        1e10
+      );
+    });
+  });
 });

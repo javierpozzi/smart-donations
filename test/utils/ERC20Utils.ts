@@ -1,18 +1,37 @@
-import { BigNumber } from "ethers";
+import { BigNumber, BigNumberish } from "ethers";
 import { ethers } from "hardhat";
 
-export function addDecimalsToDai(amount: number) {
-  return addDecimalsToToken(amount, 18);
+export function cTokenToToken(
+  cTokenBalance: BigNumber,
+  exchangeRate: BigNumber,
+  tokenDecimals: number
+) {
+  return cTokenBalance
+    .mul(exchangeRate)
+    .div(BigNumber.from(10).pow(tokenDecimals));
 }
 
-export function addDecimalsToToken(amount: number, decimals: number) {
-  return BigNumber.from(10).pow(decimals).mul(amount);
+export function parseDaiUnits(amount: BigNumberish) {
+  return ethers.utils.parseUnits(amount.toString(), 18);
 }
 
-export async function seedDAI(toAddress: string, amount: number) {
+export function parseUsdcUnits(amount: BigNumberish) {
+  return ethers.utils.parseUnits(amount.toString(), 6);
+}
+
+export async function seedDAI(toAddress: string, amount: BigNumberish) {
   await transferERC20Token(
     process.env.DAI_CONTRACT_ADDRESS!,
     process.env.DAI_WHALE_ADDRESS!,
+    toAddress,
+    amount
+  );
+}
+
+export async function seedUSDC(toAddress: string, amount: BigNumberish) {
+  await transferERC20Token(
+    process.env.USDC_CONTRACT_ADDRESS!,
+    process.env.USDC_WHALE_ADDRESS!,
     toAddress,
     amount
   );
@@ -22,26 +41,22 @@ async function transferERC20Token(
   erc20ContractAddress: string,
   fromAddress: string,
   toAddress: string,
-  amount: number
+  amount: BigNumberish
 ) {
-  const erc20Contract = await ethers.getContractAt(
-    "ERC20",
-    erc20ContractAddress
-  );
-
   const hre = require("hardhat");
   await hre.network.provider.request({
     method: "hardhat_impersonateAccount",
     params: [fromAddress],
   });
 
-  const decimals = await erc20Contract.decimals();
-
-  const tokensToTransfer = addDecimalsToToken(amount, decimals);
-
   const signer = await ethers.getSigner(fromAddress);
 
-  await erc20Contract.connect(signer).transfer(toAddress, tokensToTransfer, {
+  const erc20Contract = await ethers.getContractAt(
+    "ERC20",
+    erc20ContractAddress
+  );
+
+  await erc20Contract.connect(signer).transfer(toAddress, amount, {
     gasLimit: 2100000,
   });
 }
