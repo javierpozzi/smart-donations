@@ -34,7 +34,9 @@ contract InvestmentPool is Ownable {
             _token,
             _cToken
         );
-        require(generatedInterests > 0, "No generated interests to redeem");
+        if (generatedInterests == 0) {
+            return 0;
+        }
         _cToken.redeemUnderlying(generatedInterests);
         return generatedInterests;
     }
@@ -81,8 +83,9 @@ contract InvestmentPool is Ownable {
         CERC20 _cToken,
         uint256 exchangeRate
     ) internal view onlyOwner returns (uint256) {
+        uint8 tokenDecimals = _token.decimals();
         uint256 balance = (_cToken.balanceOf(address(this)) * exchangeRate) /
-            (1**_token.decimals());
+            (10**tokenDecimals);
         uint256 totalInvested = totalInvestedTokens[_symbol];
         return balance > totalInvested ? balance - totalInvested : 0;
     }
