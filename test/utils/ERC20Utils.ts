@@ -3,12 +3,9 @@ import { ethers } from "hardhat";
 
 export function cTokenToToken(
   cTokenBalance: BigNumber,
-  exchangeRate: BigNumber,
-  tokenDecimals: number
+  exchangeRate: BigNumber
 ) {
-  return cTokenBalance
-    .mul(exchangeRate)
-    .div(BigNumber.from(10).pow(tokenDecimals));
+  return cTokenBalance.mul(exchangeRate).div(BigNumber.from(10).pow(18));
 }
 
 export function parseDaiUnits(amount: BigNumberish) {

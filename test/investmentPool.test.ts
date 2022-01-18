@@ -59,12 +59,7 @@ describe("Investment Pool", function () {
         investmentPoolContract.address
       );
       const exchangeRateStored = await cDaiContract.exchangeRateStored();
-      const decimals = await daiContract.decimals();
-      const cDaiBalanceInDai = cTokenToToken(
-        cDaiBalance,
-        exchangeRateStored,
-        decimals
-      );
+      const cDaiBalanceInDai = cTokenToToken(cDaiBalance, exchangeRateStored);
 
       expect(cDaiBalanceInDai).to.be.closeTo(oneThousandDais, 1e10);
     });
@@ -192,7 +187,6 @@ describe("Investment Pool", function () {
 
       await investmentPoolContract.redeemTokenGeneratedInterests(
         daiAsBytes32,
-        daiContract.address,
         cDaiContract.address
       );
 
@@ -202,12 +196,9 @@ describe("Investment Pool", function () {
       const exchangeRateStoredAfterRedeem =
         await cDaiContract.exchangeRateStored();
 
-      const decimals = await daiContract.decimals();
-
       const daiGeneratedInterests = cTokenToToken(
         cDaiBalanceBeforeRedeem.sub(cDaiBalanceAfterRedeem),
-        exchangeRateStoredAfterRedeem,
-        decimals
+        exchangeRateStoredAfterRedeem
       );
 
       const daiBalanceAfterRedeem = await daiContract.balanceOf(
@@ -230,7 +221,6 @@ describe("Investment Pool", function () {
 
       await investmentPoolContract.redeemTokenGeneratedInterests(
         daiAsBytes32,
-        daiContract.address,
         cDaiContract.address
       );
 
@@ -238,12 +228,7 @@ describe("Investment Pool", function () {
         investmentPoolContract.address
       );
       const exchangeRateStored = await cDaiContract.exchangeRateStored();
-      const decimals = await daiContract.decimals();
-      const cDaiBalanceInDai = cTokenToToken(
-        cDaiBalance,
-        exchangeRateStored,
-        decimals
-      );
+      const cDaiBalanceInDai = cTokenToToken(cDaiBalance, exchangeRateStored);
 
       expect(cDaiBalanceInDai).to.be.closeTo(totalInvested, 1e10);
     });
@@ -266,7 +251,6 @@ describe("Investment Pool", function () {
 
       await investmentPoolContract.redeemTokenGeneratedInterests(
         daiAsBytes32,
-        daiContract.address,
         cDaiContract.address
       );
 
@@ -281,7 +265,6 @@ describe("Investment Pool", function () {
     it("Should not redeem any interest if nothing was invested", async function () {
       await investmentPoolContract.redeemTokenGeneratedInterests(
         daiAsBytes32,
-        daiContract.address,
         cDaiContract.address
       );
 
@@ -296,11 +279,7 @@ describe("Investment Pool", function () {
       await expect(
         investmentPoolContract
           .connect(otherAddr)
-          .redeemTokenGeneratedInterests(
-            daiAsBytes32,
-            daiContract.address,
-            cDaiContract.address
-          )
+          .redeemTokenGeneratedInterests(daiAsBytes32, cDaiContract.address)
       ).to.be.revertedWith("Ownable: caller is not the owner");
     });
   });
@@ -388,18 +367,14 @@ describe("Investment Pool", function () {
 
       const exchangeRateStored = await cDaiContract.exchangeRateStored();
 
-      const decimals = await daiContract.decimals();
-
       const daiGeneratedInterestsCalculated = cTokenToToken(
         cDaiBalance,
-        exchangeRateStored,
-        decimals
+        exchangeRateStored
       ).sub(totalInvested);
 
       const daiGeneratedInterestsFromContract =
         await investmentPoolContract.getTokenGeneratedInterestsStored(
           daiAsBytes32,
-          daiContract.address,
           cDaiContract.address
         );
 

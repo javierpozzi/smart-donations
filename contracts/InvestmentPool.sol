@@ -26,12 +26,10 @@ contract InvestmentPool is Ownable {
 
     function redeemTokenGeneratedInterests(
         bytes32 _symbol,
-        ERC20 _token,
         CERC20 _cToken
     ) external onlyOwner returns (uint256) {
         uint256 generatedInterests = getTokenGeneratedInterestsCurrent(
             _symbol,
-            _token,
             _cToken
         );
         if (generatedInterests == 0) {
@@ -49,29 +47,28 @@ contract InvestmentPool is Ownable {
         _token.transfer(_to, _amount);
     }
 
-    function getTokenGeneratedInterestsStored(
-        bytes32 _symbol,
-        ERC20 _token,
-        CERC20 _cToken
-    ) external view onlyOwner returns (uint256) {
+    function getTokenGeneratedInterestsStored(bytes32 _symbol, CERC20 _cToken)
+        external
+        view
+        onlyOwner
+        returns (uint256)
+    {
         return
             _getTokenGeneratedInterests(
                 _symbol,
-                _token,
                 _cToken,
                 _cToken.exchangeRateStored()
             );
     }
 
-    function getTokenGeneratedInterestsCurrent(
-        bytes32 _symbol,
-        ERC20 _token,
-        CERC20 _cToken
-    ) public onlyOwner returns (uint256) {
+    function getTokenGeneratedInterestsCurrent(bytes32 _symbol, CERC20 _cToken)
+        public
+        onlyOwner
+        returns (uint256)
+    {
         return
             _getTokenGeneratedInterests(
                 _symbol,
-                _token,
                 _cToken,
                 _cToken.exchangeRateCurrent()
             );
@@ -79,11 +76,10 @@ contract InvestmentPool is Ownable {
 
     function _getTokenGeneratedInterests(
         bytes32 _symbol,
-        ERC20 _token,
         CERC20 _cToken,
         uint256 exchangeRate
     ) internal view onlyOwner returns (uint256) {
-        uint8 tokenDecimals = _token.decimals();
+        uint8 tokenDecimals = 18;
         uint256 balance = (_cToken.balanceOf(address(this)) * exchangeRate) /
             (10**tokenDecimals);
         uint256 totalInvested = totalInvestedTokens[_symbol];
