@@ -1,7 +1,7 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { CERC20, ERC20, InvestmentPool } from "../typechain";
+import { CERC20, IERC20, InvestmentPool } from "../typechain";
 import { cTokenToToken, parseDaiUnits, seedDAI } from "./utils/ERC20Utils";
 
 describe("Investment Pool", function () {
@@ -13,9 +13,9 @@ describe("Investment Pool", function () {
 
   let investmentPoolContract: InvestmentPool;
   let cDaiContract: CERC20;
-  let daiContract: ERC20;
+  let daiContract: IERC20;
   let cUsdcContract: CERC20;
-  let usdcContract: ERC20;
+  let usdcContract: IERC20;
   let investor1: SignerWithAddress;
   let investor2: SignerWithAddress;
   let accounts: SignerWithAddress[];
@@ -26,7 +26,7 @@ describe("Investment Pool", function () {
       process.env.COMPOUND_DAI_CONTRACT_ADDRESS!
     );
     daiContract = await ethers.getContractAt(
-      "ERC20",
+      "IERC20",
       process.env.DAI_CONTRACT_ADDRESS!
     );
     cUsdcContract = await ethers.getContractAt(
@@ -34,7 +34,7 @@ describe("Investment Pool", function () {
       process.env.COMPOUND_USDC_CONTRACT_ADDRESS!
     );
     usdcContract = await ethers.getContractAt(
-      "ERC20",
+      "IERC20",
       process.env.USDC_CONTRACT_ADDRESS!
     );
     accounts = await ethers.getSigners();

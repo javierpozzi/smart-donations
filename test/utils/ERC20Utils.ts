@@ -16,6 +16,10 @@ export function parseUsdcUnits(amount: BigNumberish) {
   return ethers.utils.parseUnits(amount.toString(), 6);
 }
 
+export function parseUsdtUnits(amount: BigNumberish) {
+  return ethers.utils.parseUnits(amount.toString(), 6);
+}
+
 export async function seedDAI(toAddress: string, amount: BigNumberish) {
   await transferERC20Token(
     process.env.DAI_CONTRACT_ADDRESS!,
@@ -29,6 +33,15 @@ export async function seedUSDC(toAddress: string, amount: BigNumberish) {
   await transferERC20Token(
     process.env.USDC_CONTRACT_ADDRESS!,
     process.env.USDC_WHALE_ADDRESS!,
+    toAddress,
+    amount
+  );
+}
+
+export async function seedUSDT(toAddress: string, amount: BigNumberish) {
+  await transferERC20Token(
+    process.env.USDT_CONTRACT_ADDRESS!,
+    process.env.USDT_WHALE_ADDRESS!,
     toAddress,
     amount
   );
@@ -49,7 +62,7 @@ async function transferERC20Token(
   const signer = await ethers.getSigner(fromAddress);
 
   const erc20Contract = await ethers.getContractAt(
-    "ERC20",
+    "IERC20",
     erc20ContractAddress
   );
 

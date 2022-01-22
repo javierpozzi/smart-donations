@@ -2,13 +2,16 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./dtos/InvertibleTokenDTO.sol";
 import "./interfaces/CERC20.sol";
-import "./interfaces/ERC20.sol";
 
 contract InvestmentPool is Ownable {
+    using SafeERC20 for IERC20;
+
     struct InvertibleToken {
-        ERC20 token;
+        IERC20 token;
         CERC20 cToken;
     }
 
@@ -28,7 +31,7 @@ contract InvestmentPool is Ownable {
                 i
             ];
             InvertibleToken memory invertibleToken = InvertibleToken({
-                token: ERC20(invertibleTokenDTO.tokenAddress),
+                token: IERC20(invertibleTokenDTO.tokenAddress),
                 cToken: CERC20(invertibleTokenDTO.cTokenAddress)
             });
             invertibleTokens[invertibleTokenDTO.symbol] = invertibleToken;
@@ -51,7 +54,7 @@ contract InvestmentPool is Ownable {
         uint256 cTokenBalanceBeforeMint = invertibleToken.cToken.balanceOf(
             address(this)
         );
-        invertibleToken.token.approve(address(invertibleToken.cToken), _amount);
+        invertibleToken.token.safeIncreaseAllowance(address(invertibleToken.cToken), _amount);
         uint256 mintResult = invertibleToken.cToken.mint(_amount);
         require(mintResult == 0, "Failed to mint");
         uint256 cTokenBalanceAfterMint = invertibleToken.cToken.balanceOf(
@@ -94,7 +97,7 @@ contract InvestmentPool is Ownable {
             address(invertibleToken.token) != address(0),
             "Invalid token symbol"
         );
-        invertibleToken.token.transfer(_to, _amount);
+        invertibleToken.token.safeTransfer(_to, _amount);
     }
 
     function getTokenAddress(bytes32 _symbol) external view returns (address) {

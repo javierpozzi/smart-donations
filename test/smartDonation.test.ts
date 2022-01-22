@@ -2,27 +2,33 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
 import { BigNumber } from "ethers";
 import { ethers } from "hardhat";
-import { CERC20, ERC20, SmartDonation } from "../typechain";
+import { CERC20, IERC20, SmartDonation } from "../typechain";
 import {
   cTokenToToken,
   parseDaiUnits,
   parseUsdcUnits,
+  parseUsdtUnits,
   seedDAI,
   seedUSDC,
+  seedUSDT,
 } from "./utils/ERC20Utils";
 
 describe("Smart Donation", function () {
   const daiAsBytes32 = ethers.utils.formatBytes32String("DAI");
   const usdcAsBytes32 = ethers.utils.formatBytes32String("USDC");
+  const usdtAsBytes32 = ethers.utils.formatBytes32String("USDT");
   const oneThousandDais = parseDaiUnits(1000);
   const oneHundredThousandDais = parseDaiUnits(100000);
   const oneHundredThousandUsdcs = parseUsdcUnits(100000);
+  const oneHundredThousandUsdts = parseUsdtUnits(100000);
 
   let smartDonationContract: SmartDonation;
   let cDaiContract: CERC20;
-  let daiContract: ERC20;
+  let daiContract: IERC20;
   let cUsdcContract: CERC20;
-  let usdcContract: ERC20;
+  let usdcContract: IERC20;
+  let cUsdtContract: CERC20;
+  let usdtContract: IERC20;
   let donor1: SignerWithAddress;
   let donor2: SignerWithAddress;
   let trustedDonee1: SignerWithAddress;
@@ -39,7 +45,7 @@ describe("Smart Donation", function () {
       process.env.COMPOUND_DAI_CONTRACT_ADDRESS!
     );
     daiContract = await ethers.getContractAt(
-      "ERC20",
+      "IERC20",
       process.env.DAI_CONTRACT_ADDRESS!
     );
     cUsdcContract = await ethers.getContractAt(
@@ -47,8 +53,16 @@ describe("Smart Donation", function () {
       process.env.COMPOUND_USDC_CONTRACT_ADDRESS!
     );
     usdcContract = await ethers.getContractAt(
-      "ERC20",
+      "IERC20",
       process.env.USDC_CONTRACT_ADDRESS!
+    );
+    cUsdtContract = await ethers.getContractAt(
+      "CERC20",
+      process.env.COMPOUND_USDT_CONTRACT_ADDRESS!
+    );
+    usdtContract = await ethers.getContractAt(
+      "IERC20",
+      process.env.USDT_CONTRACT_ADDRESS!
     );
     accounts = await ethers.getSigners();
     donor1 = accounts[0];
@@ -79,8 +93,10 @@ describe("Smart Donation", function () {
     smartDonationContract = ownerSmartDonationContract.connect(donor1);
     await seedDAI(donor1.address, oneHundredThousandDais);
     await seedUSDC(donor1.address, oneHundredThousandUsdcs);
+    await seedUSDT(donor1.address, oneHundredThousandUsdts);
     await seedDAI(donor2.address, oneHundredThousandDais);
     await seedUSDC(donor2.address, oneHundredThousandUsdcs);
+    await seedUSDT(donor2.address, oneHundredThousandUsdts);
   });
 
   async function deployTrustedDoneeManager() {
@@ -123,6 +139,11 @@ describe("Smart Donation", function () {
         tokenAddress: usdcContract.address,
         cTokenAddress: cUsdcContract.address,
       },
+      {
+        symbol: usdtAsBytes32,
+        tokenAddress: usdtContract.address,
+        cTokenAddress: cUsdtContract.address,
+      },
     ]);
     await investmentPoolContract.deployed();
     return investmentPoolContract;
@@ -152,6 +173,12 @@ describe("Smart Donation", function () {
           contract: usdcContract,
           cContract: cUsdcContract,
           amount: oneHundredThousandUsdcs,
+        },
+        {
+          symbol: usdtAsBytes32,
+          contract: usdtContract,
+          cContract: cUsdtContract,
+          amount: oneHundredThousandUsdts,
         },
       ];
 
@@ -183,6 +210,12 @@ describe("Smart Donation", function () {
           cContract: cUsdcContract,
           amount: oneHundredThousandUsdcs,
         },
+        {
+          symbol: usdtAsBytes32,
+          contract: usdtContract,
+          cContract: cUsdtContract,
+          amount: oneHundredThousandUsdts,
+        },
       ];
 
       const investmentPoolContract =
@@ -204,6 +237,24 @@ describe("Smart Donation", function () {
         );
         expect(cTokenBalanceInTokens).to.be.closeTo(token.amount, 1e10);
       });
+    });
+
+    it("Should subtract used token allowance after investment", async function () {
+      await daiContract.approve(smartDonationContract.address, oneThousandDais);
+
+      const allowanceBefore = await daiContract.allowance(
+        donor1.address,
+        smartDonationContract.address
+      );
+
+      await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
+
+      const allowanceAfter = await daiContract.allowance(
+        donor1.address,
+        smartDonationContract.address
+      );
+
+      expect(allowanceAfter).to.be.equal(allowanceBefore.sub(oneThousandDais));
     });
 
     it("Should emit Investment event when investing token", async function () {
@@ -343,6 +394,12 @@ describe("Smart Donation", function () {
           contract: usdcContract,
           amount: oneHundredThousandUsdcs,
         },
+        {
+          symbol: usdtAsBytes32,
+          contract: usdtContract,
+          cContract: cUsdtContract,
+          amount: oneHundredThousandUsdts,
+        },
       ];
 
       const doneeTokensBalanceBeforeDonation = await Promise.all(
@@ -429,6 +486,12 @@ describe("Smart Donation", function () {
           symbol: usdcAsBytes32,
           contract: usdcContract,
           amount: oneHundredThousandUsdcs,
+        },
+        {
+          symbol: usdtAsBytes32,
+          contract: usdtContract,
+          cContract: cUsdtContract,
+          amount: oneHundredThousandUsdts,
         },
       ];
 

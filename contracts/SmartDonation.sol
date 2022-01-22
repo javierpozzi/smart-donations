@@ -2,12 +2,15 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./InvestmentPool.sol";
 import "./TrustedDoneesManager.sol";
 import "./dtos/DonatedDoneeDTO.sol";
-import "./interfaces/ERC20.sol";
 
 contract SmartDonation {
+    using SafeERC20 for IERC20;
+
     event Investment(
         address indexed from,
         bytes32 indexed symbol,
@@ -34,8 +37,11 @@ contract SmartDonation {
     }
 
     function investToken(bytes32 _symbol, uint256 _amount) external {
-        ERC20 token = ERC20(investmentPool.getTokenAddress(_symbol));
-        token.transferFrom(msg.sender, address(investmentPool), _amount);
+        IERC20(investmentPool.getTokenAddress(_symbol)).safeTransferFrom(
+            msg.sender,
+            address(investmentPool),
+            _amount
+        );
         investmentPool.investToken(msg.sender, _symbol, _amount);
         emit Investment(msg.sender, _symbol, _amount);
     }
