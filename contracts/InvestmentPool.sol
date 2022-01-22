@@ -2,87 +2,165 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./dtos/InvertibleTokenDTO.sol";
 import "./interfaces/CERC20.sol";
 import "./interfaces/ERC20.sol";
 
 contract InvestmentPool is Ownable {
-    mapping(bytes32 => uint256) public totalInvestedTokens;
+    struct InvertibleToken {
+        ERC20 token;
+        CERC20 cToken;
+    }
+
+    struct TokenPool {
+        uint256 cTokenBalance;
+        uint256 investedAmount;
+    }
+
+    mapping(address => mapping(bytes32 => TokenPool)) public tokenPools;
+
+    mapping(bytes32 => InvertibleToken) public invertibleTokens;
+    bytes32[] public invertibleTokenSymbols;
+
+    constructor(InvertibleTokenDTO[] memory _invertibleTokenDTOs) {
+        for (uint256 i = 0; i < _invertibleTokenDTOs.length; i++) {
+            InvertibleTokenDTO memory invertibleTokenDTO = _invertibleTokenDTOs[
+                i
+            ];
+            InvertibleToken memory invertibleToken = InvertibleToken({
+                token: ERC20(invertibleTokenDTO.tokenAddress),
+                cToken: CERC20(invertibleTokenDTO.cTokenAddress)
+            });
+            invertibleTokens[invertibleTokenDTO.symbol] = invertibleToken;
+            invertibleTokenSymbols.push(invertibleTokenDTO.symbol);
+        }
+    }
 
     function investToken(
+        address _investor,
         bytes32 _symbol,
-        ERC20 _token,
-        CERC20 _cToken,
         uint256 _amount
     ) external onlyOwner {
         require(_amount > 0, "Amount must be greater than 0");
-        require(address(_token) != address(0), "Token address cannot be 0");
-        require(address(_cToken) != address(0), "cToken address cannot be 0");
-
-        totalInvestedTokens[_symbol] += _amount;
-        _token.approve(address(_cToken), _amount);
-        uint256 mintResult = _cToken.mint(_amount);
+        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
+        require(
+            address(invertibleToken.token) != address(0),
+            "Invalid token symbol"
+        );
+        tokenPools[_investor][_symbol].investedAmount += _amount;
+        uint256 cTokenBalanceBeforeMint = invertibleToken.cToken.balanceOf(
+            address(this)
+        );
+        invertibleToken.token.approve(address(invertibleToken.cToken), _amount);
+        uint256 mintResult = invertibleToken.cToken.mint(_amount);
         require(mintResult == 0, "Failed to mint");
+        uint256 cTokenBalanceAfterMint = invertibleToken.cToken.balanceOf(
+            address(this)
+        );
+        tokenPools[_investor][_symbol].cTokenBalance =
+            cTokenBalanceAfterMint -
+            cTokenBalanceBeforeMint;
     }
 
-    function redeemTokenGeneratedInterests(
-        bytes32 _symbol,
-        CERC20 _cToken
-    ) external onlyOwner returns (uint256) {
+    function redeemTokenGeneratedInterests(address _investor, bytes32 _symbol)
+        external
+        onlyOwner
+        returns (uint256)
+    {
+        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
+        require(
+            address(invertibleToken.token) != address(0),
+            "Invalid token symbol"
+        );
         uint256 generatedInterests = getTokenGeneratedInterestsCurrent(
+            _investor,
             _symbol,
-            _cToken
+            invertibleToken.cToken
         );
         if (generatedInterests == 0) {
             return 0;
         }
-        _cToken.redeemUnderlying(generatedInterests);
+        invertibleToken.cToken.redeemUnderlying(generatedInterests);
         return generatedInterests;
     }
 
     function transferToken(
-        ERC20 _token,
+        bytes32 _symbol,
         address _to,
         uint256 _amount
     ) external onlyOwner {
-        _token.transfer(_to, _amount);
+        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
+        require(
+            address(invertibleToken.token) != address(0),
+            "Invalid token symbol"
+        );
+        invertibleToken.token.transfer(_to, _amount);
     }
 
-    function getTokenGeneratedInterestsStored(bytes32 _symbol, CERC20 _cToken)
+    function getTokenAddress(bytes32 _symbol) external view returns (address) {
+        address tokenAddress = address(invertibleTokens[_symbol].token);
+        require(tokenAddress != address(0), "Invalid token symbol");
+        return tokenAddress;
+    }
+
+    function getInvertibleTokenSymbols()
         external
         view
-        onlyOwner
+        returns (bytes32[] memory)
+    {
+        return invertibleTokenSymbols;
+    }
+
+    function getTokenInvestedAmount(address _investor, bytes32 _symbol)
+        external
+        view
         returns (uint256)
     {
+        require(
+            address(invertibleTokens[_symbol].token) != address(0),
+            "Invalid token symbol"
+        );
+        return tokenPools[_investor][_symbol].investedAmount;
+    }
+
+    function getTokenGeneratedInterestsStored(
+        address _investor,
+        bytes32 _symbol
+    ) external view returns (uint256) {
+        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
+        require(
+            address(invertibleToken.token) != address(0),
+            "Invalid token symbol"
+        );
         return
             _getTokenGeneratedInterests(
+                _investor,
                 _symbol,
-                _cToken,
-                _cToken.exchangeRateStored()
+                invertibleToken.cToken.exchangeRateStored()
             );
     }
 
-    function getTokenGeneratedInterestsCurrent(bytes32 _symbol, CERC20 _cToken)
-        public
-        onlyOwner
-        returns (uint256)
-    {
+    function getTokenGeneratedInterestsCurrent(
+        address _investor,
+        bytes32 _symbol,
+        CERC20 _cToken
+    ) internal onlyOwner returns (uint256) {
         return
             _getTokenGeneratedInterests(
+                _investor,
                 _symbol,
-                _cToken,
                 _cToken.exchangeRateCurrent()
             );
     }
 
     function _getTokenGeneratedInterests(
+        address _investor,
         bytes32 _symbol,
-        CERC20 _cToken,
         uint256 exchangeRate
-    ) internal view onlyOwner returns (uint256) {
-        uint8 tokenDecimals = 18;
-        uint256 balance = (_cToken.balanceOf(address(this)) * exchangeRate) /
-            (10**tokenDecimals);
-        uint256 totalInvested = totalInvestedTokens[_symbol];
-        return balance > totalInvested ? balance - totalInvested : 0;
+    ) internal view returns (uint256) {
+        TokenPool memory tokenPool = tokenPools[_investor][_symbol];
+        uint256 balance = (tokenPool.cTokenBalance * exchangeRate) / 1e18;
+        uint256 investedAmount = tokenPool.investedAmount;
+        return balance > investedAmount ? balance - investedAmount : 0;
     }
 }

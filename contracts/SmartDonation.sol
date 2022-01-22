@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./InvestmentPool.sol";
 import "./TrustedDoneesManager.sol";
-import "./dtos/InvertibleTokenDTO.sol";
 import "./dtos/DonatedDoneeDTO.sol";
+import "./interfaces/ERC20.sol";
 
 contract SmartDonation {
     event Investment(
@@ -20,90 +20,41 @@ contract SmartDonation {
         uint256 amount
     );
 
-    struct InvertibleToken {
-        ERC20 token;
-        CERC20 cToken;
-    }
-
     TrustedDoneesManager public trustedDoneesManager;
-
-    mapping(address => InvestmentPool) public investmentPools;
-
-    mapping(bytes32 => InvertibleToken) public invertibleTokens;
-    bytes32[] public invertibleTokenSymbols;
+    InvestmentPool public investmentPool;
 
     constructor(
-        address trustedDoneesManagerAddress,
-        InvertibleTokenDTO[] memory invertibleTokenDTOs
+        address _trustedDoneesManagerAddress,
+        address _investmentPoolAddress
     ) {
         trustedDoneesManager = TrustedDoneesManager(
-            trustedDoneesManagerAddress
+            _trustedDoneesManagerAddress
         );
-        for (uint256 i = 0; i < invertibleTokenDTOs.length; i++) {
-            InvertibleTokenDTO memory invertibleTokenDTO = invertibleTokenDTOs[
-                i
-            ];
-            InvertibleToken memory invertibleToken = InvertibleToken({
-                token: ERC20(invertibleTokenDTO.tokenAddress),
-                cToken: CERC20(invertibleTokenDTO.cTokenAddress)
-            });
-            invertibleTokens[invertibleTokenDTO.symbol] = invertibleToken;
-            invertibleTokenSymbols.push(invertibleTokenDTO.symbol);
-        }
-    }
-
-    function openInvestmentPool() external {
-        require(
-            address(investmentPools[msg.sender]) == address(0),
-            "Investment pool already opened"
-        );
-        investmentPools[msg.sender] = new InvestmentPool();
+        investmentPool = InvestmentPool(_investmentPoolAddress);
     }
 
     function investToken(bytes32 _symbol, uint256 _amount) external {
-        InvestmentPool investmentPool = investmentPools[msg.sender];
-        require(
-            address(investmentPool) != address(0),
-            "Investment pool not found"
-        );
-        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
-        require(
-            address(invertibleToken.token) != address(0),
-            "Invalid token symbol"
-        );
-        invertibleToken.token.transferFrom(
-            msg.sender,
-            address(investmentPool),
-            _amount
-        );
-        investmentPool.investToken(
-            _symbol,
-            invertibleToken.token,
-            invertibleToken.cToken,
-            _amount
-        );
+        ERC20 token = ERC20(investmentPool.getTokenAddress(_symbol));
+        token.transferFrom(msg.sender, address(investmentPool), _amount);
+        investmentPool.investToken(msg.sender, _symbol, _amount);
         emit Investment(msg.sender, _symbol, _amount);
     }
 
     function donateTokensGeneratedInterests(
         DonatedDoneeDTO[] calldata _donatedDoneeDTOs
     ) external {
-        InvestmentPool investmentPool = investmentPools[msg.sender];
-        require(
-            address(investmentPool) != address(0),
-            "Investment pool not found"
-        );
         require(
             _donatedDoneeDTOs.length > 0,
             "There must be at least one donee"
         );
         validateDonees(_donatedDoneeDTOs);
         bool hasGeneratedInterests = false;
+        bytes32[] memory invertibleTokenSymbols = investmentPool
+            .getInvertibleTokenSymbols();
         for (uint256 i = 0; i < invertibleTokenSymbols.length; i++) {
             bool _hasGeneratedInterests = donateTokenGeneratedInterests(
-                investmentPool,
-                _donatedDoneeDTOs,
-                invertibleTokenSymbols[i]
+                invertibleTokenSymbols[i],
+                _donatedDoneeDTOs
             );
             if (_hasGeneratedInterests) {
                 hasGeneratedInterests = true;
@@ -117,49 +68,27 @@ contract SmartDonation {
         view
         returns (uint256)
     {
-        InvestmentPool investmentPool = investmentPools[msg.sender];
-        require(
-            address(investmentPool) != address(0),
-            "Investment pool not found"
-        );
-        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
-        require(
-            address(invertibleToken.cToken) != address(0),
-            "Invalid token symbol"
-        );
         return
             investmentPool.getTokenGeneratedInterestsStored(
-                _symbol,
-                invertibleToken.cToken
+                msg.sender,
+                _symbol
             );
     }
 
-    function getTotalInvestedToken(bytes32 _symbol)
+    function getTokenInvestedAmount(bytes32 _symbol)
         external
         view
         returns (uint256)
     {
-        InvestmentPool investmentPool = investmentPools[msg.sender];
-        require(
-            address(investmentPool) != address(0),
-            "Investment pool not found"
-        );
-        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
-        require(
-            address(invertibleToken.token) != address(0),
-            "Invalid token symbol"
-        );
-        return investmentPool.totalInvestedTokens(_symbol);
+        return investmentPool.getTokenInvestedAmount(msg.sender, _symbol);
     }
 
     function donateTokenGeneratedInterests(
-        InvestmentPool investmentPool,
-        DonatedDoneeDTO[] memory _donatedDoneeDTOs,
-        bytes32 _symbol
+        bytes32 _symbol,
+        DonatedDoneeDTO[] memory _donatedDoneeDTOs
     ) internal returns (bool) {
-        InvertibleToken memory invertibleToken = invertibleTokens[_symbol];
         uint256 generatedInterests = investmentPool
-            .redeemTokenGeneratedInterests(_symbol, invertibleToken.cToken);
+            .redeemTokenGeneratedInterests(msg.sender, _symbol);
         if (generatedInterests == 0) {
             return false;
         }
@@ -172,11 +101,7 @@ contract SmartDonation {
                 ? (generatedInterests - totalDonated) // Avoid rounding errors
                 : (generatedInterests * percentage) / 100;
             totalDonated += amount;
-            investmentPool.transferToken(
-                invertibleToken.token,
-                doneeAddress,
-                amount
-            );
+            investmentPool.transferToken(_symbol, doneeAddress, amount);
             emit Donation(msg.sender, doneeAddress, _symbol, amount);
         }
         return true;

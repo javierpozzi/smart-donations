@@ -23,7 +23,7 @@ describe("Smart Donation", function () {
   let daiContract: ERC20;
   let cUsdcContract: CERC20;
   let usdcContract: ERC20;
-  let donor: SignerWithAddress;
+  let donor1: SignerWithAddress;
   let donor2: SignerWithAddress;
   let trustedDonee1: SignerWithAddress;
   let trustedDonee2: SignerWithAddress;
@@ -51,7 +51,7 @@ describe("Smart Donation", function () {
       process.env.USDC_CONTRACT_ADDRESS!
     );
     accounts = await ethers.getSigners();
-    donor = accounts[0];
+    donor1 = accounts[0];
     donor2 = accounts[1];
     trustedDonee1 = accounts[10];
     trustedDonee2 = accounts[11];
@@ -62,6 +62,28 @@ describe("Smart Donation", function () {
   });
 
   beforeEach(async function () {
+    const trustedDoneesManagerContract = await deployTrustedDoneeManager();
+    const investmentPoolContract = await deployInvestmentPool();
+
+    const SmartDonation = await ethers.getContractFactory("SmartDonation");
+    const ownerSmartDonationContract = await SmartDonation.connect(
+      owner
+    ).deploy(
+      trustedDoneesManagerContract.address,
+      investmentPoolContract.address
+    );
+    await ownerSmartDonationContract.deployed();
+    investmentPoolContract.transferOwnership(
+      ownerSmartDonationContract.address
+    );
+    smartDonationContract = ownerSmartDonationContract.connect(donor1);
+    await seedDAI(donor1.address, oneHundredThousandDais);
+    await seedUSDC(donor1.address, oneHundredThousandUsdcs);
+    await seedDAI(donor2.address, oneHundredThousandDais);
+    await seedUSDC(donor2.address, oneHundredThousandUsdcs);
+  });
+
+  async function deployTrustedDoneeManager() {
     const TrustedDoneesManager = await ethers.getContractFactory(
       "TrustedDoneesManager"
     );
@@ -85,76 +107,39 @@ describe("Smart Donation", function () {
       ethers.utils.formatBytes32String("Donee 4"),
       trustedDonee4.address
     );
+    return trustedDoneesManagerContract;
+  }
 
-    const SmartDonation = await ethers.getContractFactory("SmartDonation");
-    const ownerSmartDonationContract = await SmartDonation.connect(
-      owner
-    ).deploy(trustedDoneesManagerContract.address, [
+  async function deployInvestmentPool() {
+    const InvestmentPool = await ethers.getContractFactory("InvestmentPool");
+    const investmentPoolContract = await InvestmentPool.deploy([
       {
         symbol: daiAsBytes32,
-        tokenAddress: process.env.DAI_CONTRACT_ADDRESS!,
-        cTokenAddress: process.env.COMPOUND_DAI_CONTRACT_ADDRESS!,
+        tokenAddress: daiContract.address,
+        cTokenAddress: cDaiContract.address,
       },
       {
         symbol: usdcAsBytes32,
-        tokenAddress: process.env.USDC_CONTRACT_ADDRESS!,
-        cTokenAddress: process.env.COMPOUND_USDC_CONTRACT_ADDRESS!,
+        tokenAddress: usdcContract.address,
+        cTokenAddress: cUsdcContract.address,
       },
     ]);
-    await ownerSmartDonationContract.deployed();
-    smartDonationContract = ownerSmartDonationContract.connect(donor);
-    await seedDAI(donor.address, oneHundredThousandDais);
-    await seedUSDC(donor.address, oneHundredThousandUsdcs);
-    await seedDAI(donor2.address, oneHundredThousandDais);
-    await seedUSDC(donor2.address, oneHundredThousandUsdcs);
-  });
-
-  describe("Open investment pool", function () {
-    it("Should open personal investment pool", async function () {
-      await smartDonationContract.openInvestmentPool();
-
-      const investmentPoolAddress = await smartDonationContract.investmentPools(
-        donor.address
-      );
-
-      expect(investmentPoolAddress).to.not.be.equal(
-        "0x0000000000000000000000000000000000000000"
-      );
-    });
-
-    it("Should not be able to open more than one personal investment pool from the same address", async function () {
-      await smartDonationContract.openInvestmentPool();
-
-      await expect(
-        smartDonationContract.openInvestmentPool()
-      ).to.be.revertedWith("Investment pool already opened");
-    });
-
-    it("Should not be able to use other's personal investment pool", async function () {
-      await smartDonationContract.openInvestmentPool();
-
-      await expect(
-        smartDonationContract
-          .connect(donor2)
-          .getTokenGeneratedInterests(daiAsBytes32)
-      ).to.be.revertedWith("Investment pool not found");
-    });
-  });
+    await investmentPoolContract.deployed();
+    return investmentPoolContract;
+  }
 
   describe("Invest token", function () {
     it("Should invest token and see the amount on the investment pool contract", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
       await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
 
       const totalInvestedDai =
-        await smartDonationContract.getTotalInvestedToken(daiAsBytes32);
+        await smartDonationContract.getTokenInvestedAmount(daiAsBytes32);
 
       expect(totalInvestedDai).to.be.equal(oneThousandDais);
     });
 
-    it("Should be able to invest multiple tokens and see the invested amount of each one on the investment pool contract", async function () {
+    it("Should be able to invest multiple tokens and see your invested amount on each one", async function () {
       const tokens = [
         {
           symbol: daiAsBytes32,
@@ -170,16 +155,16 @@ describe("Smart Donation", function () {
         },
       ];
 
-      await smartDonationContract.openInvestmentPool();
-
       tokens.forEach(async (token) => {
-        await token.contract.approve(
-          smartDonationContract.address,
-          token.amount
-        );
+        await token.contract
+          .connect(donor1)
+          .approve(smartDonationContract.address, token.amount);
+        await token.contract
+          .connect(donor2)
+          .approve(smartDonationContract.address, token.amount);
         await smartDonationContract.investToken(token.symbol, token.amount);
         const totalInvestedToken =
-          await smartDonationContract.getTotalInvestedToken(token.symbol);
+          await smartDonationContract.getTokenInvestedAmount(token.symbol);
         expect(totalInvestedToken).to.be.equal(token.amount);
       });
     });
@@ -200,10 +185,8 @@ describe("Smart Donation", function () {
         },
       ];
 
-      await smartDonationContract.openInvestmentPool();
-
       const investmentPoolContract =
-        await smartDonationContract.investmentPools(donor.address);
+        await smartDonationContract.investmentPool();
 
       tokens.forEach(async (token) => {
         await token.contract.approve(
@@ -224,26 +207,16 @@ describe("Smart Donation", function () {
     });
 
     it("Should emit Investment event when investing token", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
 
       await expect(
         smartDonationContract.investToken(daiAsBytes32, oneThousandDais)
       )
         .to.emit(smartDonationContract, "Investment")
-        .withArgs(donor.address, daiAsBytes32, oneThousandDais);
-    });
-
-    it("Should not be able to invest without an opened investment pool", async function () {
-      await expect(
-        smartDonationContract.investToken(daiAsBytes32, oneThousandDais)
-      ).to.be.revertedWith("Investment pool not found");
+        .withArgs(donor1.address, daiAsBytes32, oneThousandDais);
     });
 
     it("Should not be able to invest without sufficient allowance", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await daiContract.approve(
         smartDonationContract.address,
         oneThousandDais.sub(1)
@@ -255,8 +228,6 @@ describe("Smart Donation", function () {
     });
 
     it("Should not be able to invest on a token that is not on the invertible tokens list", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await expect(
         smartDonationContract.investToken(
           ethers.utils.formatBytes32String("INVALID-TOKEN"),
@@ -267,15 +238,7 @@ describe("Smart Donation", function () {
   });
 
   describe("Token generated interests", function () {
-    it("Should not be able to get a token generated interests without an opened investment pool", async function () {
-      await expect(
-        smartDonationContract.getTokenGeneratedInterests(daiAsBytes32)
-      ).to.be.revertedWith("Investment pool not found");
-    });
-
     it("Should not be able to get the generated interests of a token that is not on the invertible tokens list", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await expect(
         smartDonationContract.getTokenGeneratedInterests(
           ethers.utils.formatBytes32String("INVALID-TOKEN")
@@ -285,27 +248,19 @@ describe("Smart Donation", function () {
   });
 
   describe("Total invested token", function () {
-    it("Should not be able to get the total invested of a token without an opened investment pool", async function () {
-      await expect(
-        smartDonationContract.getTotalInvestedToken(daiAsBytes32)
-      ).to.be.revertedWith("Investment pool not found");
-    });
-
     it("Should not be able to get the total invested of a token that is not on the invertible tokens list", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await expect(
-        smartDonationContract.getTotalInvestedToken(
+        smartDonationContract.getTokenInvestedAmount(
           ethers.utils.formatBytes32String("INVALID-TOKEN")
         )
       ).to.be.revertedWith("Invalid token symbol");
     });
   });
+
   describe("Donate token generated interests", function () {
     it("Should emit Donate event when donating", async function () {
       const donees = [{ doneeAddress: trustedDonee1.address, percentage: 100 }];
 
-      await smartDonationContract.openInvestmentPool();
       await daiContract.approve(
         smartDonationContract.address,
         oneHundredThousandDais
@@ -323,7 +278,7 @@ describe("Smart Donation", function () {
       );
       const [from, to, symbol] = donationEvent!.args!;
 
-      expect(from).to.be.equals(donor.address);
+      expect(from).to.be.equals(donor1.address);
       expect(to).to.be.equals(donees[0].doneeAddress);
       expect(symbol).to.be.equals(daiAsBytes32);
     });
@@ -340,7 +295,6 @@ describe("Smart Donation", function () {
         donees.map(async (donee) => daiContract.balanceOf(donee.doneeAddress))
       );
 
-      await smartDonationContract.openInvestmentPool();
       await daiContract.approve(
         smartDonationContract.address,
         oneHundredThousandDais
@@ -367,7 +321,7 @@ describe("Smart Donation", function () {
         const [from, to, symbol, amount] = doneeDonationEvent!.args!;
         const doneeBalanceBeforeDonation = doneesBalanceBeforeDonation[index];
         const doneeBalanceAfterDonation = doneesBalanceAfterDonation[index];
-        expect(from).to.be.equals(donor.address);
+        expect(from).to.be.equals(donor1.address);
         expect(to).to.be.equals(donee.doneeAddress);
         expect(symbol).to.be.equals(daiAsBytes32);
         expect(amount).to.be.equals(
@@ -396,8 +350,6 @@ describe("Smart Donation", function () {
           token.contract.balanceOf(donee.doneeAddress)
         )
       );
-
-      await smartDonationContract.openInvestmentPool();
 
       await Promise.all(
         tokens.map(async (token) => {
@@ -431,7 +383,7 @@ describe("Smart Donation", function () {
           doneeTokensBalanceBeforeDonation[index];
         const doneeTokenBalanceAfterDonation =
           doneeTokensBalanceAfterDonation[index];
-        expect(from).to.be.equals(donor.address);
+        expect(from).to.be.equals(donor1.address);
         expect(to).to.be.equals(donee.doneeAddress);
         expect(symbol).to.be.equals(token.symbol);
         expect(amount).to.be.equals(
@@ -488,8 +440,6 @@ describe("Smart Donation", function () {
         );
       });
 
-      await smartDonationContract.openInvestmentPool();
-
       await Promise.all(
         tokens.map(async (token) => {
           await token.contract.approve(
@@ -525,7 +475,7 @@ describe("Smart Donation", function () {
             donee.tokenBalancesBeforeDonation[tokenIndex];
           const doneeTokenBalanceAfterDonation =
             donee.tokenBalancesAfterDonation[tokenIndex];
-          expect(from).to.be.equals(donor.address);
+          expect(from).to.be.equals(donor1.address);
           expect(to).to.be.equals(donee.doneeAddress);
           expect(symbol).to.be.equals(token.symbol);
           expect(amount).to.be.equals(
@@ -542,7 +492,6 @@ describe("Smart Donation", function () {
         trustedDonee1.address
       );
 
-      await smartDonationContract.openInvestmentPool();
       await daiContract.approve(
         smartDonationContract.address,
         oneHundredThousandDais
@@ -577,7 +526,13 @@ describe("Smart Donation", function () {
         { doneeAddress: trustedDonee4.address, percentage: 1 },
       ];
 
-      await smartDonationContract.openInvestmentPool();
+      await daiContract
+        .connect(donor2)
+        .approve(smartDonationContract.address, oneHundredThousandDais);
+      await smartDonationContract
+        .connect(donor2)
+        .investToken(daiAsBytes32, oneHundredThousandDais);
+
       await daiContract.approve(
         smartDonationContract.address,
         oneHundredThousandDais
@@ -587,18 +542,16 @@ describe("Smart Donation", function () {
         oneHundredThousandDais
       );
 
-      const donorInvestmentPool = await smartDonationContract.investmentPools(
-        donor.address
-      );
+      const donor1InvestmentPool = await smartDonationContract.investmentPool();
 
       const investmentPoolBalanceBeforeDonation = await daiContract.balanceOf(
-        donorInvestmentPool
+        donor1InvestmentPool
       );
 
       await smartDonationContract.donateTokensGeneratedInterests(donees);
 
       const investmentPoolBalanceAfterDonation = await daiContract.balanceOf(
-        donorInvestmentPool
+        donor1InvestmentPool
       );
 
       expect(investmentPoolBalanceAfterDonation).to.be.equals(
@@ -606,20 +559,10 @@ describe("Smart Donation", function () {
       );
     });
 
-    it("Should not be able to donate token generated interests without an opened investment pool", async function () {
-      const donees = [{ doneeAddress: trustedDonee1.address, percentage: 100 }];
-
-      await expect(
-        smartDonationContract.donateTokensGeneratedInterests(donees)
-      ).to.be.revertedWith("Investment pool not found");
-    });
-
     it("Should revert if there is an untrusted donee", async function () {
       const donees = [
         { doneeAddress: untrustedDonee.address, percentage: 100 },
       ];
-
-      await smartDonationContract.openInvestmentPool();
 
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
       await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
@@ -630,8 +573,6 @@ describe("Smart Donation", function () {
     });
 
     it("Should revert if there isn't any donee", async function () {
-      await smartDonationContract.openInvestmentPool();
-
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
       await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
 
@@ -643,8 +584,6 @@ describe("Smart Donation", function () {
     it("Should revert if no interests where generated", async function () {
       const donees = [{ doneeAddress: trustedDonee1.address, percentage: 100 }];
 
-      await smartDonationContract.openInvestmentPool();
-
       await expect(
         smartDonationContract.donateTokensGeneratedInterests(donees)
       ).to.be.revertedWith("No generated interests");
@@ -652,8 +591,6 @@ describe("Smart Donation", function () {
 
     it("Should revert if a donee's percentage is 0", async function () {
       const donees = [{ doneeAddress: trustedDonee1.address, percentage: 0 }];
-
-      await smartDonationContract.openInvestmentPool();
 
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
       await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
@@ -665,8 +602,6 @@ describe("Smart Donation", function () {
 
     it("Should revert if a donee's percentage is more than 100", async function () {
       const donees = [{ doneeAddress: trustedDonee1.address, percentage: 101 }];
-
-      await smartDonationContract.openInvestmentPool();
 
       await daiContract.approve(smartDonationContract.address, oneThousandDais);
       await smartDonationContract.investToken(daiAsBytes32, oneThousandDais);
@@ -682,8 +617,6 @@ describe("Smart Donation", function () {
         { doneeAddress: trustedDonee2.address, percentage: 45 },
         { doneeAddress: trustedDonee3.address, percentage: 9 },
       ];
-
-      await smartDonationContract.openInvestmentPool();
 
       await daiContract.approve(
         smartDonationContract.address,
@@ -706,8 +639,6 @@ describe("Smart Donation", function () {
         { doneeAddress: trustedDonee3.address, percentage: 1 },
       ];
 
-      await smartDonationContract.openInvestmentPool();
-
       await daiContract.approve(
         smartDonationContract.address,
         oneHundredThousandDais
@@ -716,8 +647,6 @@ describe("Smart Donation", function () {
         daiAsBytes32,
         oneHundredThousandDais
       );
-
-      await smartDonationContract.connect(donor2).openInvestmentPool();
 
       await daiContract
         .connect(donor2)
@@ -729,6 +658,37 @@ describe("Smart Donation", function () {
       await expect(
         smartDonationContract.donateTokensGeneratedInterests(donees)
       ).to.be.revertedWith("Total percentage must be 100");
+    });
+
+    it("Should revert if a donee address is 0", async function () {
+      const donees = [
+        {
+          doneeAddress: "0x0000000000000000000000000000000000000000",
+          percentage: 50,
+        },
+        { doneeAddress: trustedDonee2.address, percentage: 50 },
+        { doneeAddress: trustedDonee3.address, percentage: 1 },
+      ];
+
+      await daiContract.approve(
+        smartDonationContract.address,
+        oneHundredThousandDais
+      );
+      await smartDonationContract.investToken(
+        daiAsBytes32,
+        oneHundredThousandDais
+      );
+
+      await daiContract
+        .connect(donor2)
+        .approve(smartDonationContract.address, oneHundredThousandDais);
+      await smartDonationContract
+        .connect(donor2)
+        .investToken(daiAsBytes32, oneHundredThousandDais);
+
+      await expect(
+        smartDonationContract.donateTokensGeneratedInterests(donees)
+      ).to.be.revertedWith("Donee address cannot be 0");
     });
   });
 });
