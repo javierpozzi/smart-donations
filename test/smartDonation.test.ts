@@ -22,6 +22,8 @@ describe("Smart Donation", function () {
   const oneHundredThousandUsdcs = parseUsdcUnits(100000);
   const oneHundredThousandUsdts = parseUsdtUnits(100000);
 
+  const tokenSymbolsAsBytes32 = [daiAsBytes32, usdcAsBytes32, usdtAsBytes32];
+
   let smartDonationContract: SmartDonation;
   let cDaiContract: CERC20;
   let daiContract: IERC20;
@@ -35,6 +37,7 @@ describe("Smart Donation", function () {
   let trustedDonee2: SignerWithAddress;
   let trustedDonee3: SignerWithAddress;
   let trustedDonee4: SignerWithAddress;
+  let trustedDonees: SignerWithAddress[];
   let untrustedDonee: SignerWithAddress;
   let owner: SignerWithAddress;
   let accounts: SignerWithAddress[];
@@ -71,6 +74,12 @@ describe("Smart Donation", function () {
     trustedDonee2 = accounts[11];
     trustedDonee3 = accounts[12];
     trustedDonee4 = accounts[13];
+    trustedDonees = [
+      trustedDonee1,
+      trustedDonee2,
+      trustedDonee3,
+      trustedDonee4,
+    ];
     untrustedDonee = accounts[18];
     owner = accounts[19];
   });
@@ -305,6 +314,29 @@ describe("Smart Donation", function () {
           ethers.utils.formatBytes32String("INVALID-TOKEN")
         )
       ).to.be.revertedWith("Invalid token symbol");
+    });
+  });
+
+  describe("Invertible tokens", function () {
+    it("Should be able to get the symbols of invertible tokens", async function () {
+      const tokenSymbols = await smartDonationContract.getInvertibleTokens();
+      tokenSymbols.forEach((tokenSymbol) => {
+        expect(tokenSymbolsAsBytes32).to.contains(tokenSymbol);
+      });
+      expect(tokenSymbols.length).to.be.equal(tokenSymbolsAsBytes32.length);
+    });
+  });
+
+  describe("Trusted Donees", function () {
+    it("Should be able to get the addresses of the trusted donees", async function () {
+      const trustedDoneeAddresses =
+        await smartDonationContract.getTrustedDonees();
+      trustedDonees
+        .map((d) => d.address)
+        .forEach((trustedDonee) => {
+          expect(trustedDoneeAddresses).to.contains(trustedDonee);
+        });
+      expect(trustedDoneeAddresses.length).to.be.equal(trustedDonees.length);
     });
   });
 

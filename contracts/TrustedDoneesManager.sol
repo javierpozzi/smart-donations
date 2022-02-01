@@ -42,4 +42,8 @@ contract TrustedDoneesManager is Ownable {
     function isDoneeEnabled(address _addr) external view returns (bool) {
         return donees[_addr].enabled;
     }
+
+    function getDonees() external view returns (address[] memory) {
+        return doneeAddresses;
+    }
 }

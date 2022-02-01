@@ -89,6 +89,14 @@ contract SmartDonation {
         return investmentPool.getTokenInvestedAmount(msg.sender, _symbol);
     }
 
+    function getInvertibleTokens() external view returns (bytes32[] memory) {
+        return investmentPool.getInvertibleTokenSymbols();
+    }
+
+    function getTrustedDonees() external view returns (address[] memory) {
+        return trustedDoneesManager.getDonees();
+    }
+
     function donateTokenGeneratedInterests(
         bytes32 _symbol,
         DonatedDoneeDTO[] memory _donatedDoneeDTOs
