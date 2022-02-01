@@ -1,5 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
+import { BigNumber } from "ethers";
 import { ethers } from "hardhat";
 import { CERC20, IERC20, InvestmentPool } from "../typechain";
 import { cTokenToToken, parseDaiUnits, seedDAI } from "./utils/ERC20Utils";
@@ -459,6 +460,79 @@ describe("Investment Pool", function () {
           ethers.utils.formatBytes32String("INVALID-TOKEN")
         )
       ).to.be.revertedWith("Invalid token symbol");
+    });
+
+    it("Should reduce token generated interests after redeem", async function () {
+      await daiContract
+        .connect(investor1)
+        .transfer(investmentPoolContract.address, oneHundredThousandDais);
+      await investmentPoolContract.investToken(
+        investor1.address,
+        daiAsBytes32,
+        oneHundredThousandDais
+      );
+
+      await cDaiContract.accrueInterest();
+
+      const generatedInterestsBefore =
+        await investmentPoolContract.getTokenGeneratedInterestsStored(
+          investor1.address,
+          daiAsBytes32
+        );
+
+      await investmentPoolContract.redeemTokenGeneratedInterests(
+        investor1.address,
+        daiAsBytes32
+      );
+
+      const generatedInterestsAfter =
+        await investmentPoolContract.getTokenGeneratedInterestsStored(
+          investor1.address,
+          daiAsBytes32
+        );
+
+      expect(generatedInterestsBefore).to.be.gt(generatedInterestsAfter);
+      expect(generatedInterestsAfter).to.be.closeTo(BigNumber.from(0), 1e10);
+    });
+
+    it("Should increase token generated interests with each investment", async function () {
+      await daiContract
+        .connect(investor1)
+        .transfer(investmentPoolContract.address, oneThousandDais);
+      await investmentPoolContract.investToken(
+        investor1.address,
+        daiAsBytes32,
+        oneThousandDais
+      );
+
+      await cDaiContract.accrueInterest();
+
+      const generatedInterestsFirstInv =
+        await investmentPoolContract.getTokenGeneratedInterestsStored(
+          investor1.address,
+          daiAsBytes32
+        );
+
+      await daiContract
+        .connect(investor1)
+        .transfer(investmentPoolContract.address, oneThousandDais);
+      await investmentPoolContract.investToken(
+        investor1.address,
+        daiAsBytes32,
+        oneThousandDais
+      );
+
+      await cDaiContract.accrueInterest();
+
+      const generatedInterestsSecondInv =
+        await investmentPoolContract.getTokenGeneratedInterestsStored(
+          investor1.address,
+          daiAsBytes32
+        );
+
+      expect(generatedInterestsSecondInv).to.be.gt(
+        generatedInterestsFirstInv.mul(2)
+      );
     });
   });
 });

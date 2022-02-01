@@ -54,13 +54,16 @@ contract InvestmentPool is Ownable {
         uint256 cTokenBalanceBeforeMint = invertibleToken.cToken.balanceOf(
             address(this)
         );
-        invertibleToken.token.safeIncreaseAllowance(address(invertibleToken.cToken), _amount);
+        invertibleToken.token.safeIncreaseAllowance(
+            address(invertibleToken.cToken),
+            _amount
+        );
         uint256 mintResult = invertibleToken.cToken.mint(_amount);
         require(mintResult == 0, "Failed to mint");
         uint256 cTokenBalanceAfterMint = invertibleToken.cToken.balanceOf(
             address(this)
         );
-        tokenPools[_investor][_symbol].cTokenBalance =
+        tokenPools[_investor][_symbol].cTokenBalance +=
             cTokenBalanceAfterMint -
             cTokenBalanceBeforeMint;
     }
@@ -75,14 +78,20 @@ contract InvestmentPool is Ownable {
             address(invertibleToken.token) != address(0),
             "Invalid token symbol"
         );
-        uint256 generatedInterests = getTokenGeneratedInterestsCurrent(
+        uint256 exchangeRateCurrent = invertibleToken
+            .cToken
+            .exchangeRateCurrent();
+        uint256 generatedInterests = _getTokenGeneratedInterests(
             _investor,
             _symbol,
-            invertibleToken.cToken
+            exchangeRateCurrent
         );
         if (generatedInterests == 0) {
             return 0;
         }
+        tokenPools[_investor][_symbol].cTokenBalance -=
+            (generatedInterests * 1e18) /
+            exchangeRateCurrent;
         invertibleToken.cToken.redeemUnderlying(generatedInterests);
         return generatedInterests;
     }
@@ -140,19 +149,6 @@ contract InvestmentPool is Ownable {
                 _investor,
                 _symbol,
                 invertibleToken.cToken.exchangeRateStored()
-            );
-    }
-
-    function getTokenGeneratedInterestsCurrent(
-        address _investor,
-        bytes32 _symbol,
-        CERC20 _cToken
-    ) internal onlyOwner returns (uint256) {
-        return
-            _getTokenGeneratedInterests(
-                _investor,
-                _symbol,
-                _cToken.exchangeRateCurrent()
             );
     }
 
