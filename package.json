@@ -5,8 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "TS_NODE_TRANSPILE_ONLY=1 npx hardhat test",
-    "test-gas": "REPORT_GAS=true TS_NODE_TRANSPILE_ONLY=1 npx hardhat test",
-    "coverage": "TS_NODE_TRANSPILE_ONLY=1 npx hardhat coverage"
+    "gas-report": "REPORT_GAS=true npm test",
+    "coverage": "TS_NODE_TRANSPILE_ONLY=1 npx hardhat coverage",
+    "deploy-local": "DUMMY_DATA=1 npx hardhat run scripts/deploy.ts --network localhost",
+    "simulation": "npx hardhat run scripts/simulation.ts"
   },
   "keywords": [],
   "author": "",

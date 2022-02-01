@@ -9,15 +9,15 @@ export function cTokenToToken(
 }
 
 export function parseDaiUnits(amount: BigNumberish) {
-  return ethers.utils.parseUnits(amount.toString(), 18);
+  return ethers.utils.parseUnits(amount.toString(), process.env.DAI_DECIMALS!);
 }
 
 export function parseUsdcUnits(amount: BigNumberish) {
-  return ethers.utils.parseUnits(amount.toString(), 6);
+  return ethers.utils.parseUnits(amount.toString(), process.env.USDC_DECIMALS!);
 }
 
 export function parseUsdtUnits(amount: BigNumberish) {
-  return ethers.utils.parseUnits(amount.toString(), 6);
+  return ethers.utils.parseUnits(amount.toString(), process.env.USDT_DECIMALS!);
 }
 
 export async function seedDAI(toAddress: string, amount: BigNumberish) {
