@@ -23,10 +23,15 @@ module.exports = {
   },
   overrides: [
     {
+      files: ["*.ts"],
+      rules: {
+        "node/no-missing-import": "off",
+      },
+    },
+    {
       files: ["*.test.ts", "*.spec.ts"],
       rules: {
         "no-unused-expressions": "off",
-        "node/no-missing-import": "off",
         camelcase: "off",
       },
     },
