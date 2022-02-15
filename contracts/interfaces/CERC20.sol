@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+/**
+ * @title Compound ERC20 Interface
+ * 
+ * @dev Interface of a cToken from Compound Protocol.
+ */
 interface CERC20 {
     function mint(uint256) external returns (uint256);
 

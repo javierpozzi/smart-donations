@@ -5,6 +5,7 @@ import "@nomiclabs/hardhat-etherscan";
 import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
 import "hardhat-gas-reporter";
+import "solidity-docgen";
 import "solidity-coverage";
 import "./scripts/tasks";
 
@@ -49,6 +50,10 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 40000,
+  },
+  docgen: {
+    pages: (_, file) =>
+      file.absolutePath.startsWith("contracts/") ? "index.md" : undefined,
   },
 };
 
